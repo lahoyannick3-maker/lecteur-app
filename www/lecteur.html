@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mon Lecteur Multi-Fichiers Officiel</title>
+<!-- Libs locales pour mode hors ligne -->
+<script src="libs/jszip.min.js"></script>
+<script src="libs/docx-preview.min.js"></script>
+<script src="libs/pdf.min.js"></script>
+<script src="libs/xlsx.full.min.js"></script>
+<style>
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: #121212;
+  color: #ffffff;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  -webkit-tap-highlight-color: transparent; /* Supprime le flash bleu au tap */
+}
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Barre d'outils */
+.toolbar {
+  background-color: #1f1f1f;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid #00adb5;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  z-index: 10;
+}
+.title {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #00adb5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-right: 10px;
+}
+.btn {
+  background-color: #00adb5;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 25px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.9rem;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  transition: background 0.2s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.btn:active { background-color: #007a80; }
+/* AJOUT: Bouton icône (recherche) */
+.btn-icon {
+  padding: 10px 14px;
+  font-size: 1rem;
+}
+/* AJOUT: Barre de recherche */
+.search-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background-color: #1a1a1a;
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+}
+.search-bar.active { display: flex; }
+#search-input {
+  flex: 1;
+  min-width: 0;
+  background-color: #2d2d2d;
+  border: 1px solid #444;
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.search-count {
+  color: #aaa;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: center;
+}
+.search-nav-btn {
+  background-color: #2d2d2d;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.search-nav-btn:active { background-color: #007a80; }
+mark.search-hl {
+  background-color: #ffe066;
+  color: #000;
+  border-radius: 2px;
+}
+mark.search-hl.current {
+  background-color: #ff9800;
+}
+/* AJOUT: Boutons flottants haut/bas */
+.scroll-fab-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.scroll-fab-container.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.scroll-fab {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background-color: rgba(0,173,181,0.85);
+  color: white;
+  border: none;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  cursor: pointer;
+}
+.scroll-fab:active { background-color: #007a80; }
+/* AJOUT: Style onglets Excel */
+.tabs-container {
+  display: flex;
+  background-color: #1a1a1a;
+  border-bottom: 1px solid #333;
+  overflow-x: auto;
+  padding: 6px 10px;
+  gap: 6px;
+}
+.sheet-button {
+  background-color: #2d2d2d;
+  color: #ccc;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.sheet-button.active {
+  background-color: #00adb5;
+  color: white;
+  font-weight: bold;
+}
+.sheet-button:active { background-color: #007a80; }
+/* Zone de visualisation principale */
+.viewer-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  background-color: #2d2d2d;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+canvas {
+  box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+  background-color: white;
+  max-width: 100%;
+  height: auto!important;
+  display: block;
+}
+/* Conteneur Word et Excel */
+.document-wrapper {
+  background-color: white;
+  color: #333;
+  padding: 30px 20px;
+  max-width: 800px;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+/* AJOUT: Images Word responsive */
+.document-wrapper img, .docx-wrapper img { 
+  max-width: 100% !important; 
+  height: auto !important; 
+}
+/* Style tableaux Excel et Word adaptés au mobile */
+.document-wrapper table {
+  border-collapse: collapse;
+  margin-top: 10px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  background-color: #ffffff;
+  
+  /* Sécurités pour le zoom et la largeur Word/Excel */
+  max-width: 100% !important;
+  width: 100% !important;
+  display: block;
+  overflow-x: auto;
+}
+.document-wrapper tr,.document-wrapper th,.document-wrapper td {
+  border: 1px solid #cccccc!important;
+  color: #222!important;
+  padding: 8px 12px!important;
+  text-align: left;
+}
+.document-wrapper th {
+  background-color: #f4f4f4!important;
+  font-weight: bold!important;
+}
+.document-wrapper tr:hover { background-color: #f9f9f9!important; }
+#file-input { display: none; }
+.info-text { color: #aaa; font-style: italic; text-align: center; margin-top: 40px; }
+.loading { color: #00adb5; text-align: center; margin-top: 60px; font-size: 1.1rem; }
+/* Permet au tableau de défiler horizontalement sans déformer l'application */
+.document-wrapper {
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 10px !important; /* Réduit les marges internes blanches */
+  overflow-x: auto !important; /* Permet de scroller le tableau s'il déborde */
+  -webkit-overflow-scrolling: touch;
+}
+/* Réinitialise la zone d'affichage principale pour accepter le scroll dans tous les sens */
+.viewer-container {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+/* Cible le conteneur global injecté par docx-preview */
+/* === RENDU DOCX STYLE "PAGE COMPLÈTE MISE À L'ÉCHELLE" (comme un lecteur PDF) === */
+/* Conteneur extérieur : gère le fond gris + masque le débordement causé par le zoom */
+.docx-scale-outer {
+  background: #e0e0e0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+}
+/* Le vrai conteneur docx-preview : on NE force PLUS sa largeur à 100%.
+   Il garde sa taille réelle (page A4 en px), et c'est le transform: scale()
+   calculé en JS (fitDocxToScreen) qui le fait tenir à l'écran, texte et
+   tableaux inclus, exactement comme le fait l'autre lecteur. */
+.docx-wrapper {
+  background: #e0e0e0;
+}
+.docx-wrapper .docx {
+  margin: 0 auto 15px auto !important;
+  background: white !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+  box-sizing: border-box !important;
+}
+/* Le tableau garde sa mise en page naturelle du document (pas de largeur
+   minimale forcée) : c'est le scale global qui le réduit proportionnellement,
+   texte compris, au lieu de créer un scroll horizontal. */
+.docx-wrapper table {
+  border-collapse: collapse !important;
+  margin: 15px 0 !important;
+}
+.docx-wrapper tr, .docx-wrapper th, .docx-wrapper td {
+  border: 1px solid #cccccc !important;
+  color: #222 !important;
+  padding: 8px 12px !important;
+  text-align: left;
+}
+/* Empêche la coupure du texte au niveau des tirets (ex: SI1-SI2).
+   !important + ciblage des enfants (p, span) car docx-preview applique
+   souvent son propre style de retour à la ligne directement dessus. */
+.docx-wrapper td, .docx-wrapper th,
+.docx-wrapper td *, .docx-wrapper th * {
+  white-space: nowrap !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+}
+.docx-wrapper th {
+  background-color: #f4f4f4 !important;
+  font-weight: bold !important;
+}
+/* Retire les bordures du 1er tableau du document (bloc logo + titre),
+   sans toucher aux tableaux suivants (ex: le tableau des horaires) */
+.docx-wrapper .docx table:first-of-type,
+.docx-wrapper .docx table:first-of-type tr,
+.docx-wrapper .docx table:first-of-type th,
+.docx-wrapper .docx table:first-of-type td {
+  border: none !important;
+}
+/* Neutralise le float:left intégré dans le style du tableau des horaires
+   (confirmé par le diagnostic : class "docx_grilledutableau" avec float:left).
+   C'est ce float qui faisait remonter "Le Responsable" à côté du tableau
+   au lieu de passer dessous, comportement CSS classique d'un float. */
+.docx-wrapper .docx table[style*="float"] {
+  float: none !important;
+  clear: both !important;
+}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <div class="title" id="doc-title">Lecteur Multi-Formats</div>
+  <button class="btn btn-icon" id="search-toggle" title="Rechercher dans le document">🔍</button>
+  <label for="file-input" class="btn">Ouvrir un fichier</label>
+  <input type="file" id="file-input" accept=".pdf,.docx,.xlsx">
+</div>
+<div class="search-bar" id="search-bar">
+  <input type="text" id="search-input" placeholder="Rechercher dans le document...">
+  <span class="search-count" id="search-count"></span>
+  <button class="search-nav-btn" id="search-prev" title="Résultat précédent">▲</button>
+  <button class="search-nav-btn" id="search-next" title="Résultat suivant">▼</button>
+  <button class="search-nav-btn" id="search-close" title="Fermer">✕</button>
+</div>
+<div class="tabs-container" id="excel-tabs"></div>
+<div class="viewer-container" id="viewer">
+  <p class="info-text" id="placeholder">Aucun fichier ouvert. Importez un document PDF, Word ou Excel pour commencer.</p>
+</div>
+<div class="scroll-fab-container">
+  <button class="scroll-fab" id="scroll-top-btn" title="Aller en haut">▲</button>
+  <button class="scroll-fab" id="scroll-bottom-btn" title="Aller en bas">▼</button>
+</div>
+<script>
+// Worker local pour PDF
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
+const fileInput = document.getElementById('file-input');
+const viewer = document.getElementById('viewer');
+const docTitle = document.getElementById('doc-title');
+const excelTabs = document.getElementById('excel-tabs');
+let currentPdfDoc = null;
+let currentPdfObjectUrl = null; // AJOUT: URL blob du PDF en cours, à révoquer au changement de fichier
+let renderTimeout = null;
+let lastScale = 1;
+let pageViewports = {};
+let currentFileExtension = '';
+let lastWidth = window.innerWidth; // Stocke la largeur initiale de l'écran
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  // Reset complet + anti memory leak - CORRECTION 1
+  viewer.innerHTML = '<p class="loading">Chargement...</p>';
+  excelTabs.innerHTML = '';
+  closeSearch(); // Ferme et réinitialise la recherche à chaque nouveau fichier
+    // Si un PDF était déjà ouvert, on le détruit proprement pour libérer la RAM
+  if (currentPdfDoc) {
+    currentPdfDoc.destroy();
+  }
+  pdfPageObserver.disconnect();
+  if (currentPdfObjectUrl) {
+    URL.revokeObjectURL(currentPdfObjectUrl);
+    currentPdfObjectUrl = null;
+  }
+  currentPdfDoc = null;
+  pageViewports = {};
+  currentDocxRefs = null;
+  currentFileExtension = file.name.split('.').pop().toLowerCase();
+  docTitle.textContent = file.name;
+  // AJOUT: Pour un PDF, on évite de lire tout le fichier en mémoire d'abord
+  // (FileReader + Uint8Array) car ça retarde l'ouverture sur les gros fichiers.
+  // On donne directement une URL blob à pdf.js, qui peut alors lire le fichier
+  // par petits morceaux (streaming/range) et afficher la 1ère page bien plus vite.
+  if (currentFileExtension === 'pdf') {
+    openPdfFile(file);
+    return;
+  }
+  const fileReader = new FileReader();
+  fileReader.onload = function() {
+    viewer.innerHTML = '';
+        // 2. WORD (Nouveau moteur docx-preview)
+    if (currentFileExtension === 'docx') {
+      // Conteneur extérieur : c'est lui qui a la largeur de l'écran
+      // et qui masque le débordement de la page une fois réduite (scale)
+      const outer = document.createElement('div');
+      outer.className = 'docx-scale-outer';
+      viewer.appendChild(outer);
+      // Configuration options pour docx-preview
+      const options = {
+        inWrapper: true,      // INDISPENSABLE : laisse docx-preview créer sa propre structure
+                               // (.docx-wrapper > .docx) avec la vraie taille de page A4
+        ignoreWidth: false,
+        ignoreHeight: false,
+        experimental: true,   // Conserve les couleurs et formes d'origine
+        useBase64URL: true    // Corrige les images cassées (les URLs blob: posent
+                               // souvent problème quand l'app tourne en contexte fichier local)
+      };
+      // Rendu du document direct dans le conteneur extérieur
+      docx.renderAsync(this.result, outer, null, options)
+      .then(() => {
+          const wrapper = outer.querySelector('.docx-wrapper');
+          if (wrapper) {
+            fixBrokenImageMimeTypes(wrapper);
+            fitDocxToScreen(outer, wrapper);
+          } else {
+            outer.innerHTML = '<p class="info-text">Impossible d\'afficher ce document Word.</p>';
+          }
+      })
+      .catch(err => {
+          viewer.innerHTML = `<p class="info-text">Erreur Word : ${err.message}</p>`;
+      });
+    }
+   // 3. EXCEL        
+    else if (currentFileExtension === 'xlsx') {
+      const data = new Uint8Array(this.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      workbook.SheetNames.forEach((sheetName, index) => {
+        const tabButton = document.createElement('button');
+        tabButton.className = 'sheet-button' + (index === 0 ? ' active' : '');
+        tabButton.textContent = sheetName;
+        excelTabs.appendChild(tabButton);
+        const worksheet = workbook.Sheets[sheetName];
+        const htmlTable = XLSX.utils.sheet_to_html(worksheet);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'document-wrapper';
+        wrapper.innerHTML = htmlTable;
+        wrapper.style.display = index === 0 ? 'block' : 'none';
+        viewer.appendChild(wrapper);
+        tabButton.addEventListener('click', () => {
+          document.querySelectorAll('.sheet-button').forEach(btn => btn.classList.remove('active'));
+          tabButton.classList.add('active');
+          
+          document.querySelectorAll('.viewer-container .document-wrapper').forEach((wrap, wIdx) => {
+            wrap.style.display = wIdx === index ? 'block' : 'none';
+          });
+        });
+      });
+    }
+  }; // <--- C'EST CETTE FERMETURE QUI MANQUAIT (pour le fileReader.onload)
+  fileReader.readAsArrayBuffer(file);
+}); // Fermeture du fileInput.addEventListener
+// AJOUT: Ouverture PDF en streaming. On passe une URL blob à pdf.js au lieu
+// d'attendre la lecture complète du fichier (FileReader) : pdf.js peut alors
+// commencer à parser l'en-tête/la table des pages et afficher la 1ère page
+// bien avant que tout le fichier soit chargé, ce qui accélère nettement
+// l'ouverture des PDF volumineux.
+function openPdfFile(file) {
+  viewer.innerHTML = '';
+  const fileURL = URL.createObjectURL(file);
+  currentPdfObjectUrl = fileURL;
+  pdfjsLib.getDocument({ url: fileURL, disableStream: false, disableAutoFetch: false }).promise.then((pdf) => {
+    currentPdfDoc = pdf;
+    lastScale = window.visualViewport?.scale || 1;
+    // Rendu paresseux : on crée seulement des canvas "placeholder" vides
+    // (une hauteur approximative pour garder le scroll cohérent), et on
+    // ne rend réellement une page que lorsqu'elle approche de l'écran.
+    // Cela évite de charger des dizaines/centaines de pages HD en RAM
+    // d'un coup, ce qui faisait planter l'app sur les PDF volumineux.
+    pdf.getPage(1).then((firstPage) => {
+      const approxViewport = firstPage.getViewport({ scale: 1 });
+      const approxRatio = approxViewport.height / approxViewport.width;
+      const approxWidth = window.innerWidth - 30;
+      const approxHeight = Math.floor(approxWidth * approxRatio);
+      // AJOUT: on construit tous les placeholders dans un DocumentFragment
+      // (hors du DOM live) puis on l'insère en une seule fois, au lieu de
+      // faire un appendChild par page. Sur les PDF à centaines de pages, ça
+      // évite un reflow/repaint répété qui ralentissait l'ouverture.
+      const fragment = document.createDocumentFragment();
+      const canvases = [];
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const canvas = document.createElement('canvas');
+        canvas.setAttribute('data-page-num', pageNum);
+        canvas.setAttribute('data-rendered', '0');
+        canvas.style.width = approxWidth + 'px';
+        canvas.style.height = approxHeight + 'px';
+        canvas.style.display = 'block';
+        fragment.appendChild(canvas);
+        canvases.push(canvas);
+      }
+      viewer.appendChild(fragment);
+      canvases.forEach(canvas => pdfPageObserver.observe(canvas));
+    });
+  }).catch(err => {
+    viewer.innerHTML = `<p class="info-text">Erreur PDF : ${err.message}</p>`;
+  });
+}
+// AJOUT: Réduit (scale) la page Word entière pour qu'elle tienne dans l'écran,
+// texte et tableaux compris, au lieu de laisser le contenu déborder.
+let currentDocxRefs = null; // { outer, wrapper } pour pouvoir réajuster sur rotation/resize
+function fitDocxToScreen(outer, wrapper) {
+  currentDocxRefs = { outer, wrapper };
+  // On laisse le temps au navigateur de faire la mise en page avant de mesurer
+  requestAnimationFrame(() => {
+    // Largeur naturelle du document rendu (toutes les pages ont la même largeur)
+    const naturalWidth = wrapper.scrollWidth;
+    if (!naturalWidth) return;
+    const availableWidth = viewer.clientWidth - 10; // petite marge
+    const scale = Math.min(1, availableWidth / naturalWidth);
+    // "zoom" redimensionne réellement l'élément dans le flux de la page
+    // (contrairement à transform:scale), donc le conteneur autour prend
+    // naturellement la bonne taille, sans calcul manuel de hauteur.
+    wrapper.style.zoom = scale;
+  });
+}
+window.addEventListener('resize', () => {
+  if (currentDocxRefs) {
+    fitDocxToScreen(currentDocxRefs.outer, currentDocxRefs.wrapper);
+  }
+});
+// AJOUT: Panneau de diagnostic replié, affiche le vrai HTML généré par
+// docx-preview autour de "Responsable" et des balises <img>, pour pouvoir
+// cibler une correction précise au lieu de deviner à l'aveugle.
+// AJOUT: docx-preview étiquette parfois les images en "application/octet-stream"
+// (type générique) au lieu du vrai type image/*, ce qui empêche le navigateur
+// de les afficher. On détecte le vrai format via la signature base64 et on corrige.
+function fixBrokenImageMimeTypes(wrapper) {
+  const imgs = wrapper.querySelectorAll('img[src^="data:application/octet-stream;base64,"]');
+  imgs.forEach(img => {
+    const src = img.getAttribute('src');
+    const base64Data = src.substring(src.indexOf('base64,') + 7);
+    let mime = 'image/png'; // valeur par défaut si signature inconnue
+    if (base64Data.startsWith('/9j/')) mime = 'image/jpeg';
+    else if (base64Data.startsWith('iVBORw0KGgo')) mime = 'image/png';
+    else if (base64Data.startsWith('R0lGOD')) mime = 'image/gif';
+    else if (base64Data.startsWith('Qk')) mime = 'image/bmp';
+    else if (base64Data.startsWith('UklGR')) mime = 'image/webp';
+    img.setAttribute('src', 'data:' + mime + ';base64,' + base64Data);
+  });
+}
+// AJOUT: Observer qui déclenche le rendu d'une page PDF quand elle approche
+// de l'écran (rootMargin) et libère la mémoire du canvas quand elle sort de
+// la zone observée, pour éviter d'accumuler des dizaines de pages HD en RAM.
+const pdfPageObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry) => {
+    const canvas = entry.target;
+    const pageNum = parseInt(canvas.getAttribute('data-page-num'), 10);
+    if (entry.isIntersecting) {
+      if (canvas.getAttribute('data-rendered') === '0') {
+        enqueuePDFRender(pageNum, canvas);
+      }
+    } else {
+      // Page sortie de la zone : si elle n'a pas encore commencé à être
+      // rendue, on la retire simplement de la file d'attente.
+      if (canvas.__pdfQueued) {
+        dequeuePDFRender(canvas);
+      }
+      if (canvas.getAttribute('data-rendered') === '1') {
+        // Page sortie de la zone : on annule un éventuel rendu en cours puis on
+        // vide le canvas pour rendre la mémoire au système, tout en gardant sa
+        // taille CSS pour ne pas casser le scroll.
+        if (canvas.__pdfRenderTask) {
+          canvas.__pdfRenderTask.cancel();
+          canvas.__pdfRenderTask = null;
+        }
+        canvas.setAttribute('data-rendered', '0');
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+    }
+  });
+}, { root: null, rootMargin: '1000px 0px 1000px 0px', threshold: 0 });
+// AJOUT: File d'attente de rendu PDF. Sans elle, un scroll rapide ou saut
+// (ou l'ouverture d'un PDF volumineux) fait entrer plusieurs dizaines de
+// pages dans la marge de 1000px d'un coup, et pdf.js lance un render() par
+// page en parallèle : la page réellement visible à l'écran finit par
+// attendre son tour derrière des pages qui ne sont encore que dans la
+// marge, d'où les pages blanches. On limite le nombre de rendus simultanés
+// et on priorise systématiquement les pages visibles dans le viewport réel.
+let pdfActiveRenders = 0;
+const PDF_MAX_CONCURRENT_RENDERS = 2;
+let pdfRenderQueue = []; // [{ pageNum, canvas }]
+
+function enqueuePDFRender(pageNum, canvas) {
+  if (canvas.__pdfQueued || canvas.getAttribute('data-rendered') === '1') return;
+  canvas.__pdfQueued = true;
+  pdfRenderQueue.push({ pageNum, canvas });
+  processPDFRenderQueue();
+}
+
+function dequeuePDFRender(canvas) {
+  canvas.__pdfQueued = false;
+  const idx = pdfRenderQueue.findIndex(item => item.canvas === canvas);
+  if (idx !== -1) pdfRenderQueue.splice(idx, 1);
+}
+
+// Priorise les pages dont le canvas est déjà dans le viewport visible
+// (écran réel) par rapport à celles qui ne sont que dans la marge de 1000px.
+function sortPDFRenderQueueByVisibility() {
+  pdfRenderQueue.sort((a, b) => {
+    const ra = a.canvas.getBoundingClientRect();
+    const rb = b.canvas.getBoundingClientRect();
+    const aVisible = (ra.bottom > 0 && ra.top < window.innerHeight) ? 0 : 1;
+    const bVisible = (rb.bottom > 0 && rb.top < window.innerHeight) ? 0 : 1;
+    return aVisible - bVisible;
+  });
+}
+
+function processPDFRenderQueue() {
+  if (pdfActiveRenders >= PDF_MAX_CONCURRENT_RENDERS || pdfRenderQueue.length === 0) return;
+  sortPDFRenderQueueByVisibility();
+  while (pdfActiveRenders < PDF_MAX_CONCURRENT_RENDERS && pdfRenderQueue.length > 0) {
+    const { pageNum, canvas } = pdfRenderQueue.shift();
+    canvas.__pdfQueued = false;
+    if (canvas.getAttribute('data-rendered') === '1') continue; // déjà traitée entretemps
+    canvas.setAttribute('data-rendered', '1');
+    pdfActiveRenders++;
+    renderPDFPage(currentPdfDoc, pageNum, canvas, false, () => {
+      pdfActiveRenders--;
+      processPDFRenderQueue();
+    });
+  }
+}
+// AJOUT: Pendant un scroll continu, on ré-ordonne la file selon la visibilité
+// réelle (léger throttle) pour que la page qui vient d'apparaître à l'écran
+// passe devant celles qui étaient déjà en attente mais hors écran.
+let pdfScrollReorderTimeout = null;
+viewer.addEventListener('scroll', () => {
+  if (pdfScrollReorderTimeout || pdfRenderQueue.length === 0) return;
+  pdfScrollReorderTimeout = setTimeout(() => {
+    pdfScrollReorderTimeout = null;
+    processPDFRenderQueue();
+  }, 100);
+}, { passive: true });
+// CORRECTION 2: Cache viewports pour éviter lag zoom
+function renderPDFPage(pdf, pageNum, targetCanvas, useBuffer = true, onComplete = null) {
+  pdf.getPage(pageNum).then((page) => {
+    if (!pageViewports[pageNum]) {
+      pageViewports[pageNum] = page.getViewport({ scale: 1 });
+    }
+    const unscaledViewport = pageViewports[pageNum];
+    const displayWidth = window.innerWidth - 30;
+    const baseScale = (displayWidth / unscaledViewport.width);
+    const currentVisualZoom = window.visualViewport?.scale || 1;
+    const totalScale = baseScale * currentVisualZoom;
+    const viewport = page.getViewport({ scale: totalScale });
+    // AJOUT: on plafonne le pixelRatio à 2 (au lieu de 3 sur certains téléphones).
+    // Au-delà, le gain de netteté est imperceptible mais le nombre de pixels à
+    // dessiner explose (ex: 3x = 2,25x plus de pixels que 2x), ce qui ralentit
+    // nettement l'affichage de chaque page.
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const renderCanvas = useBuffer? document.createElement('canvas') : targetCanvas;
+    // AJOUT: Annule tout rendu déjà en cours sur ce canvas avant d'en lancer
+    // un nouveau, sinon pdf.js refuse ("Cannot use the same canvas during
+    // multiple render() operations") quand l'observer ou le refresh zoom
+    // déclenchent plusieurs rendus rapprochés sur la même page.
+    if (renderCanvas.__pdfRenderTask) {
+      renderCanvas.__pdfRenderTask.cancel();
+    }
+    const ctx = renderCanvas.getContext('2d');
+    renderCanvas.width = Math.floor(viewport.width * pixelRatio);
+    renderCanvas.height = Math.floor(viewport.height * pixelRatio);
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    const renderContext = { canvasContext: ctx, viewport: viewport };
+    const renderTask = page.render(renderContext);
+    renderCanvas.__pdfRenderTask = renderTask;
+    renderTask.promise.then(() => {
+      renderCanvas.__pdfRenderTask = null;
+      targetCanvas.style.width = Math.floor(viewport.width / currentVisualZoom) + "px";
+      targetCanvas.style.height = Math.floor(viewport.height / currentVisualZoom) + "px";
+      if (useBuffer) {
+        targetCanvas.width = renderCanvas.width;
+        targetCanvas.height = renderCanvas.height;
+        const targetCtx = targetCanvas.getContext('2d');
+        targetCtx.drawImage(renderCanvas, 0, 0);
+      }
+      if (onComplete) onComplete();
+    }).catch(err => {
+      renderCanvas.__pdfRenderTask = null;
+      // Un rendu annulé volontairement (page déplacée/rechargée) n'est pas une erreur à signaler.
+      if (err && err.name !== 'RenderingCancelledException') {
+        console.error('Erreur rendu PDF page ' + pageNum + ' :', err);
+      }
+      if (onComplete) onComplete();
+    });
+  });
+}
+// CORRECTION 3: Sécurité format avant refresh
+function refreshVisiblePages() {
+  if (!currentPdfDoc || currentFileExtension!== 'pdf') return;
+  const canvases = viewer.querySelectorAll('canvas');
+  const containerRect = viewer.getBoundingClientRect();
+  canvases.forEach(canvas => {
+    const rect = canvas.getBoundingClientRect();
+    const isVisible = (rect.top < containerRect.bottom && rect.bottom > containerRect.top);
+    if (isVisible) {
+      const pageNum = parseInt(canvas.getAttribute('data-page-num'), 10);
+      canvas.setAttribute('data-rendered', '1');
+      renderPDFPage(currentPdfDoc, pageNum, canvas, true);
+    }
+  });
+}
+document.addEventListener('touchend', () => {
+  if (!currentPdfDoc) return;
+  const currentScale = window.visualViewport?.scale || 1;
+  if (Math.abs(currentScale - lastScale) > 0.05) {
+    lastScale = currentScale;
+    clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(refreshVisiblePages, 100);
+  }
+});
+window.addEventListener('resize', () => {
+  if (!currentPdfDoc) return;
+  
+  // On vérifie si la largeur a vraiment changé
+  if (window.innerWidth !== lastWidth) {
+    lastWidth = window.innerWidth; // On met à jour la nouvelle largeur
+    
+    clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(refreshVisiblePages, 150);
+  }
+});
+
+// ========== AJOUT: Boutons flottants haut/bas ==========
+const scrollFabContainer = document.querySelector('.scroll-fab-container');
+let hideFabTimeout = null;
+
+function showScrollFabs() {
+  scrollFabContainer.classList.add('visible');
+  clearTimeout(hideFabTimeout);
+  hideFabTimeout = setTimeout(() => {
+    scrollFabContainer.classList.remove('visible');
+  }, 1500); // Disparaît 1,5s après la fin du scroll/contact
+}
+
+viewer.addEventListener('scroll', showScrollFabs, { passive: true });
+viewer.addEventListener('touchstart', showScrollFabs, { passive: true });
+viewer.addEventListener('touchmove', showScrollFabs, { passive: true });
+
+document.getElementById('scroll-top-btn').addEventListener('click', () => {
+  viewer.scrollTo({ top: 0, behavior: 'smooth' });
+  showScrollFabs();
+});
+document.getElementById('scroll-bottom-btn').addEventListener('click', () => {
+  viewer.scrollTo({ top: viewer.scrollHeight, behavior: 'smooth' });
+  showScrollFabs();
+});
+
+// ========== AJOUT: Recherche dans le document ==========
+// Fonctionne pour Word (.docx) et Excel (.xlsx), rendus en HTML dans le DOM.
+// Pour les PDF (rendus en <canvas>, sans texte sélectionnable), la recherche
+// n'est pas possible avec le rendu actuel : on prévient l'utilisateur plutôt
+// que de le laisser chercher dans le vide.
+const searchToggleBtn = document.getElementById('search-toggle');
+const searchBar = document.getElementById('search-bar');
+const searchInput = document.getElementById('search-input');
+const searchCount = document.getElementById('search-count');
+const searchPrevBtn = document.getElementById('search-prev');
+const searchNextBtn = document.getElementById('search-next');
+const searchCloseBtn = document.getElementById('search-close');
+let searchMatches = [];
+let searchMatchIndex = -1;
+
+function clearHighlights() {
+  viewer.querySelectorAll('mark.search-hl').forEach(mark => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    parent.replaceChild(document.createTextNode(mark.textContent), mark);
+    parent.normalize();
+  });
+  searchMatches = [];
+  searchMatchIndex = -1;
+  searchCount.textContent = '';
+}
+
+function runSearch(query) {
+  clearHighlights();
+  if (!query) return;
+
+  if (currentFileExtension === 'pdf') {
+    searchCount.textContent = 'Indispo. sur PDF';
+    return;
+  }
+
+  const lowerQuery = query.toLowerCase();
+  // Parcourt tous les noeuds de texte affichés dans le document
+  const walker = document.createTreeWalker(viewer, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (!node.textContent.toLowerCase().includes(lowerQuery)) return NodeFilter.FILTER_SKIP;
+      if (node.parentElement && node.parentElement.closest('script,style')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  const textNodes = [];
+  let node;
+  while ((node = walker.nextNode())) textNodes.push(node);
+
+  textNodes.forEach(textNode => {
+    const text = textNode.textContent;
+    const lowerText = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let lastIndex = 0;
+    let idx = lowerText.indexOf(lowerQuery);
+    while (idx !== -1) {
+      if (idx > lastIndex) frag.appendChild(document.createTextNode(text.slice(lastIndex, idx)));
+      const mark = document.createElement('mark');
+      mark.className = 'search-hl';
+      mark.textContent = text.slice(idx, idx + query.length);
+      frag.appendChild(mark);
+      searchMatches.push(mark);
+      lastIndex = idx + query.length;
+      idx = lowerText.indexOf(lowerQuery, lastIndex);
+    }
+    if (lastIndex < text.length) frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  });
+
+  if (searchMatches.length > 0) {
+    searchMatchIndex = 0;
+    goToMatch(0);
+  } else {
+    searchCount.textContent = 'Aucun résultat';
+  }
+}
+
+function goToMatch(index) {
+  if (searchMatches.length === 0) return;
+  searchMatches.forEach(m => m.classList.remove('current'));
+  searchMatchIndex = (index + searchMatches.length) % searchMatches.length;
+  const current = searchMatches[searchMatchIndex];
+  current.classList.add('current');
+  current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  searchCount.textContent = (searchMatchIndex + 1) + ' / ' + searchMatches.length;
+}
+
+function closeSearch() {
+  searchBar.classList.remove('active');
+  searchInput.value = '';
+  clearHighlights();
+}
+
+searchToggleBtn.addEventListener('click', () => {
+  searchBar.classList.toggle('active');
+  if (searchBar.classList.contains('active')) {
+    searchInput.focus();
+  } else {
+    closeSearch();
+  }
+});
+searchCloseBtn.addEventListener('click', closeSearch);
+searchInput.addEventListener('input', () => runSearch(searchInput.value.trim()));
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') goToMatch(searchMatchIndex + 1);
+  if (e.key === 'Escape') closeSearch();
+});
+searchNextBtn.addEventListener('click', () => goToMatch(searchMatchIndex + 1));
+searchPrevBtn.addEventListener('click', () => goToMatch(searchMatchIndex - 1));
+</script>
+</body>
+</html>
